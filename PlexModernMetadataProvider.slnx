@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PlexModernMetadataProvider.Api/PlexModernMetadataProvider.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PlexModernMetadataProvider.Tests/PlexModernMetadataProvider.Tests.csproj" />
+  </Folder>
+</Solution>

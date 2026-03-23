@@ -1,0 +1,9 @@
+﻿services:
+  plex-modern-metadata-provider-dotnet:
+    build: .
+    container_name: plex-modern-metadata-provider-dotnet
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    restart: unless-stopped

@@ -1,0 +1,19 @@
+﻿using PlexModernMetadataProvider.Api.Services;
+
+namespace PlexModernMetadataProvider.Tests.Services;
+
+[TestClass]
+public sealed class ProviderDefinitionsTests
+{
+    [TestMethod]
+    public void Route_Composition_Produces_PlexExpected_MovieMatchPath()
+    {
+        Assert.AreEqual("/movie/library/metadata/matches", $"{ProviderDefinitions.MovieBasePath}{ProviderDefinitions.MatchPath}");
+    }
+
+    [TestMethod]
+    public void Route_Composition_Produces_PlexExpected_TvMatchPath()
+    {
+        Assert.AreEqual("/tv/library/metadata/matches", $"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MatchPath}");
+    }
+}
