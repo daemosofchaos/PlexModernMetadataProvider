@@ -395,6 +395,7 @@ GET  /movie
 POST /movie/library/metadata/matches
 GET  /movie/library/metadata/{ratingKey}
 GET  /movie/library/metadata/{ratingKey}/images
+GET  /movie/library/metadata/{ratingKey}/extras
 ```
 
 ### TV provider
@@ -404,6 +405,7 @@ GET  /tv
 POST /tv/library/metadata/matches
 GET  /tv/library/metadata/{ratingKey}
 GET  /tv/library/metadata/{ratingKey}/images
+GET  /tv/library/metadata/{ratingKey}/extras
 GET  /tv/library/metadata/{ratingKey}/children
 ```
 

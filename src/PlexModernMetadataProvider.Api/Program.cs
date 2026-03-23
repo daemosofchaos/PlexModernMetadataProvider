@@ -91,6 +91,10 @@ app.MapGet($"{ProviderDefinitions.MovieBasePath}{ProviderDefinitions.MetadataPat
         }
     });
 
+app.MapGet($"{ProviderDefinitions.MovieBasePath}{ProviderDefinitions.MetadataPath}/{{ratingKey}}{ProviderDefinitions.ExtrasPath}",
+    (string ratingKey, MetadataService service, HttpRequest httpRequest) =>
+        Results.Ok(service.GetMovieExtras(BuildExtrasPaging(httpRequest))));
+
 app.MapGet(ProviderDefinitions.TvBasePath, () => Results.Ok(ProviderDefinitions.CreateTvProvider()));
 app.MapPost($"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MatchPath}",
     async Task<IResult> (MatchRequest request, MatchService service, HttpRequest httpRequest, IOptions<ProviderOptions> options, CancellationToken cancellationToken) =>
@@ -139,6 +143,10 @@ app.MapGet($"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MetadataPath}/
         }
     });
 
+app.MapGet($"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MetadataPath}/{{ratingKey}}{ProviderDefinitions.ExtrasPath}",
+    (string ratingKey, MetadataService service, HttpRequest httpRequest) =>
+        Results.Ok(service.GetTvExtras(BuildExtrasPaging(httpRequest))));
+
 app.MapGet($"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MetadataPath}/{{ratingKey}}/children",
     async Task<IResult> (string ratingKey, MetadataService service, HttpRequest httpRequest, IOptions<ProviderOptions> options, CancellationToken cancellationToken) =>
     {
@@ -180,6 +188,16 @@ static PagingOptions BuildPaging(HttpRequest request)
 
     var size = ParseValue(request.Headers["X-Plex-Container-Size"].FirstOrDefault() ?? request.Query["X-Plex-Container-Size"].FirstOrDefault(), 20);
     var start = ParseValue(request.Headers["X-Plex-Container-Start"].FirstOrDefault() ?? request.Query["X-Plex-Container-Start"].FirstOrDefault(), 1);
+    return new PagingOptions(size, start);
+}
+
+static PagingOptions BuildExtrasPaging(HttpRequest request)
+{
+    static int ParseValue(string? value, int fallback)
+        => int.TryParse(value, out var parsed) && parsed >= 0 ? parsed : fallback;
+
+    var size = ParseValue(request.Headers["X-Plex-Container-Size"].FirstOrDefault() ?? request.Query["X-Plex-Container-Size"].FirstOrDefault(), 50);
+    var start = ParseValue(request.Headers["X-Plex-Container-Start"].FirstOrDefault() ?? request.Query["X-Plex-Container-Start"].FirstOrDefault(), 0);
     return new PagingOptions(size, start);
 }
 

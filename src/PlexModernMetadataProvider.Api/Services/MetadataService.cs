@@ -47,6 +47,9 @@ public sealed class MetadataService
         return _plexMapper.WrapImages(ProviderDefinitions.MovieIdentifier, _plexMapper.MovieImages(movie) ?? []);
     }
 
+    public MetadataResponse GetMovieExtras(PagingOptions paging)
+        => EmptyExtrasResponse(ProviderDefinitions.MovieIdentifier, paging);
+
     public async Task<MetadataResponse> GetTvMetadataAsync(string ratingKey, PlexRequestContext context, bool includeChildren, CancellationToken cancellationToken = default)
     {
         return RatingKeys.Parse(ratingKey) switch
@@ -68,6 +71,9 @@ public sealed class MetadataService
             _ => throw new InvalidOperationException("TV image endpoint can only serve show, season, and episode keys.")
         };
     }
+
+    public MetadataResponse GetTvExtras(PagingOptions paging)
+        => EmptyExtrasResponse(ProviderDefinitions.TvIdentifier, paging);
 
     public async Task<MetadataResponse> GetTvChildrenAsync(string ratingKey, PlexRequestContext context, PagingOptions paging, CancellationToken cancellationToken = default)
     {
@@ -192,4 +198,17 @@ public sealed class MetadataService
             ?? throw new InvalidOperationException("Episode images not found.");
         return _plexMapper.WrapImages(ProviderDefinitions.TvIdentifier, _plexMapper.EpisodeImages(show, episode) ?? []);
     }
+
+    private static MetadataResponse EmptyExtrasResponse(string identifier, PagingOptions paging)
+        => new()
+        {
+            MediaContainer = new MediaContainer
+            {
+                Offset = Math.Max(0, paging.ContainerStart),
+                TotalSize = 0,
+                Identifier = identifier,
+                Size = 0,
+                Metadata = []
+            }
+        };
 }

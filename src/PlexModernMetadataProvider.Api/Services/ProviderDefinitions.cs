@@ -6,8 +6,9 @@ public static class ProviderDefinitions
 {
     public const string MovieBasePath = "/movie";
     public const string TvBasePath = "/tv";
-    public const string MetadataPath = @"/library/metadata";
-    public const string MatchPath = @"/library/metadata/matches";
+    public const string MetadataPath = "/library/metadata";
+    public const string MatchPath = "/library/metadata/matches";
+    public const string ExtrasPath = "/extras";
 
     public const string MovieIdentifier = "tv.plex.agents.custom.modernmetadata.movie";
     public const string TvIdentifier = "tv.plex.agents.custom.modernmetadata.tv";
@@ -69,5 +70,3 @@ public static class ProviderDefinitions
         }
     };
 }
-
-
