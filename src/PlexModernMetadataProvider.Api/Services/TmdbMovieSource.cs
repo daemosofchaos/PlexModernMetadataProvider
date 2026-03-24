@@ -100,6 +100,154 @@ public sealed class TmdbMovieSource : IMovieMetadataSource
         };
     }
 
+    public async Task<IReadOnlyList<ExtraMetadataModel>> GetExtrasAsync(string sourceId, PlexRequestContext context, CancellationToken cancellationToken = default)
+    {
+        if (!IsEnabled || !int.TryParse(sourceId, out var tmdbId))
+        {
+            return [];
+        }
+
+        var movie = await _client.GetMovieAsync(tmdbId, context.Language, cancellationToken);
+        return BuildExtras(movie);
+    }
+
+    public async Task<IReadOnlyList<ExtraMetadataModel>> GetExtrasByExternalIdsAsync(IReadOnlyList<ExternalIdValue>? externalIds, PlexRequestContext context, CancellationToken cancellationToken = default)
+    {
+        if (!IsEnabled)
+        {
+            return [];
+        }
+
+        var tmdbId = externalIds?
+            .FirstOrDefault(item => string.Equals(item.Provider, "tmdb", StringComparison.OrdinalIgnoreCase))?
+            .Id;
+
+        if (!string.IsNullOrWhiteSpace(tmdbId))
+        {
+            return await GetExtrasAsync(tmdbId, context, cancellationToken);
+        }
+
+        var imdbId = externalIds?
+            .FirstOrDefault(item => string.Equals(item.Provider, "imdb", StringComparison.OrdinalIgnoreCase))?
+            .Id;
+
+        if (string.IsNullOrWhiteSpace(imdbId))
+        {
+            return [];
+        }
+
+        var find = await _client.FindByExternalIdAsync(imdbId, "imdb_id", context.Language, cancellationToken);
+        var movie = find.MovieResults.FirstOrDefault();
+        return movie is null ? [] : await GetExtrasAsync(movie.Id.ToString(), context, cancellationToken);
+    }
+
+    private static IReadOnlyList<ExtraMetadataModel> BuildExtras(TmdbMovieDetails movie)
+    {
+        var items = (movie.Videos?.Results ?? [])
+            .Where(video => !string.IsNullOrWhiteSpace(video.Key) && !string.IsNullOrWhiteSpace(video.Name))
+            .Select(video => new
+            {
+                Video = video,
+                Subtype = MapSubtype(video.Type),
+                SortOrder = SortOrder(video.Type),
+                PublishedAt = ParsePublishedAt(video.PublishedAt)
+            })
+            .OrderBy(item => item.SortOrder)
+            .ThenBy(item => item.Video.Official ? 0 : 1)
+            .ThenByDescending(item => item.PublishedAt)
+            .ThenBy(item => item.Video.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var results = new List<ExtraMetadataModel>(items.Count);
+        var primaryAssigned = false;
+        var fallbackArt = ImageUrl(movie.BackdropPath);
+        var fallbackThumb = ImageUrl(movie.PosterPath);
+        var fallbackDate = ParseDate(movie.ReleaseDate);
+
+        for (var index = 0; index < items.Count; index++)
+        {
+            var item = items[index];
+            var isPrimary = !primaryAssigned && item.Subtype == "trailer";
+            if (isPrimary)
+            {
+                primaryAssigned = true;
+            }
+
+            results.Add(new ExtraMetadataModel
+            {
+                SourceKey = "tmdb",
+                SourceId = !string.IsNullOrWhiteSpace(item.Video.Id)
+                    ? item.Video.Id!
+                    : $"{item.Video.Site?.ToLowerInvariant()}:{item.Video.Key}",
+                Title = item.Video.Name!,
+                Subtype = item.Subtype,
+                Summary = BuildSummary(item.Video),
+                ThumbUrl = BuildVideoThumb(item.Video) ?? fallbackThumb,
+                ArtUrl = fallbackArt,
+                OriginallyAvailableAt = item.PublishedAt is DateTimeOffset publishedAt
+                    ? DateOnly.FromDateTime(publishedAt.UtcDateTime)
+                    : fallbackDate,
+                DurationMilliseconds = null,
+                Year = item.PublishedAt?.Year ?? fallbackDate?.Year,
+                Index = index + 1,
+                IsPrimary = isPrimary
+            });
+        }
+
+        return results;
+    }
+
+    private static string MapSubtype(string? videoType)
+        => videoType?.Trim() switch
+        {
+            "Trailer" => "trailer",
+            "Teaser" => "trailer",
+            "Behind the Scenes" => "behindTheScenes",
+            "Interview" => "interview",
+            "Featurette" => "featurette",
+            "Clip" => "sceneOrSample",
+            "Scene" => "sceneOrSample",
+            "Deleted Scene" => "deletedScene",
+            "Short" => "short",
+            _ => "other"
+        };
+
+    private static int SortOrder(string? videoType)
+        => videoType?.Trim() switch
+        {
+            "Trailer" => 0,
+            "Teaser" => 1,
+            "Behind the Scenes" => 2,
+            "Interview" => 3,
+            "Featurette" => 4,
+            "Clip" => 5,
+            "Scene" => 5,
+            "Deleted Scene" => 6,
+            "Short" => 7,
+            _ => 8
+        };
+
+    private static string? BuildSummary(TmdbVideoResult video)
+    {
+        var site = NullIfWhiteSpace(video.Site);
+        var type = NullIfWhiteSpace(video.Type);
+        var published = ParsePublishedAt(video.PublishedAt)?.ToString("yyyy-MM-dd");
+
+        var parts = new[] { type, site, published }
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .ToList();
+
+        return parts.Count == 0 ? null : string.Join(" • ", parts);
+    }
+
+    private static string? BuildVideoThumb(TmdbVideoResult video)
+        => string.Equals(video.Site, "YouTube", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(video.Key)
+            ? $"https://i.ytimg.com/vi/{video.Key}/hqdefault.jpg"
+            : null;
+
+    private static DateTimeOffset? ParsePublishedAt(string? value)
+        => DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
+
     private static IReadOnlyList<SourceImage> BuildImages(TmdbMovieDetails movie)
         => DistinctImages(
         [
@@ -191,16 +339,12 @@ public sealed class TmdbMovieSource : IMovieMetadataSource
     private static string? MovieContentRating(TmdbMovieDetails movie, string country)
     {
         var rating = movie.ReleaseDates?.Results?
-            .FirstOrDefault(item => string.Equals(item.Iso31661, country, StringComparison.OrdinalIgnoreCase))?
-            .ReleaseDates?
-            .FirstOrDefault(entry => !string.IsNullOrWhiteSpace(entry.Certification))?
-            .Certification;
+            .FirstOrDefault(item => string.Equals(item.Iso31661, country, StringComparison.OrdinalIgnoreCase))?.ReleaseDates?
+            .FirstOrDefault(entry => !string.IsNullOrWhiteSpace(entry.Certification))?.Certification;
 
         rating ??= movie.ReleaseDates?.Results?
-            .FirstOrDefault(item => string.Equals(item.Iso31661, "US", StringComparison.OrdinalIgnoreCase))?
-            .ReleaseDates?
-            .FirstOrDefault(entry => !string.IsNullOrWhiteSpace(entry.Certification))?
-            .Certification;
+            .FirstOrDefault(item => string.Equals(item.Iso31661, "US", StringComparison.OrdinalIgnoreCase))?.ReleaseDates?
+            .FirstOrDefault(entry => !string.IsNullOrWhiteSpace(entry.Certification))?.Certification;
 
         if (string.IsNullOrWhiteSpace(rating))
         {

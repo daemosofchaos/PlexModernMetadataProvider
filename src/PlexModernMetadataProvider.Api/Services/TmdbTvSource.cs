@@ -125,6 +125,99 @@ public sealed class TmdbTvSource : ITvMetadataSource
         return null;
     }
 
+    public async Task<IReadOnlyList<ExtraMetadataModel>> GetShowExtrasAsync(string sourceId, PlexRequestContext context, CancellationToken cancellationToken = default)
+    {
+        if (!IsEnabled || !int.TryParse(sourceId, out var tvId))
+        {
+            return [];
+        }
+
+        var show = await _client.GetTvAsync(tvId, context.Language, cancellationToken);
+        return BuildExtras(show.Videos?.Results, ImageUrl(show.PosterPath), ImageUrl(show.BackdropPath), ParseDate(show.FirstAirDate));
+    }
+
+    public async Task<IReadOnlyList<ExtraMetadataModel>> GetSeasonExtrasAsync(string sourceId, int seasonNumber, PlexRequestContext context, CancellationToken cancellationToken = default)
+    {
+        if (!IsEnabled || !int.TryParse(sourceId, out var tvId))
+        {
+            return [];
+        }
+
+        var show = await _client.GetTvAsync(tvId, context.Language, cancellationToken);
+        var season = await _client.GetSeasonAsync(tvId, seasonNumber, context.Language, cancellationToken);
+        return BuildExtras(season.Videos?.Results, ImageUrl(season.PosterPath) ?? ImageUrl(show.PosterPath), ImageUrl(show.BackdropPath), ParseDate(season.AirDate) ?? ParseDate(show.FirstAirDate));
+    }
+
+    public async Task<IReadOnlyList<ExtraMetadataModel>> GetEpisodeExtrasAsync(string sourceId, int seasonNumber, int episodeNumber, PlexRequestContext context, CancellationToken cancellationToken = default)
+    {
+        if (!IsEnabled || !int.TryParse(sourceId, out var tvId))
+        {
+            return [];
+        }
+
+        var show = await _client.GetTvAsync(tvId, context.Language, cancellationToken);
+        var episode = await _client.GetEpisodeAsync(tvId, seasonNumber, episodeNumber, context.Language, cancellationToken);
+        return BuildExtras(episode.Videos?.Results, ImageUrl(episode.StillPath) ?? ImageUrl(show.PosterPath), ImageUrl(show.BackdropPath), ParseDate(episode.AirDate) ?? ParseDate(show.FirstAirDate));
+    }
+
+    public async Task<IReadOnlyList<ExtraMetadataModel>> GetShowExtrasByExternalIdsAsync(IReadOnlyList<ExternalIdValue>? externalIds, PlexRequestContext context, CancellationToken cancellationToken = default)
+    {
+        var tmdbId = await ResolveTmdbShowIdAsync(externalIds, context, cancellationToken);
+        return tmdbId is null ? [] : await GetShowExtrasAsync(tmdbId.Value.ToString(), context, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ExtraMetadataModel>> GetSeasonExtrasByExternalIdsAsync(IReadOnlyList<ExternalIdValue>? externalIds, int seasonNumber, PlexRequestContext context, CancellationToken cancellationToken = default)
+    {
+        var tmdbId = await ResolveTmdbShowIdAsync(externalIds, context, cancellationToken);
+        return tmdbId is null ? [] : await GetSeasonExtrasAsync(tmdbId.Value.ToString(), seasonNumber, context, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ExtraMetadataModel>> GetEpisodeExtrasByExternalIdsAsync(IReadOnlyList<ExternalIdValue>? externalIds, int seasonNumber, int episodeNumber, PlexRequestContext context, CancellationToken cancellationToken = default)
+    {
+        var tmdbId = await ResolveTmdbShowIdAsync(externalIds, context, cancellationToken);
+        return tmdbId is null ? [] : await GetEpisodeExtrasAsync(tmdbId.Value.ToString(), seasonNumber, episodeNumber, context, cancellationToken);
+    }
+
+    private async Task<int?> ResolveTmdbShowIdAsync(IReadOnlyList<ExternalIdValue>? externalIds, PlexRequestContext context, CancellationToken cancellationToken)
+    {
+        var tmdbId = externalIds?
+            .FirstOrDefault(item => string.Equals(item.Provider, "tmdb", StringComparison.OrdinalIgnoreCase))?
+            .Id;
+
+        if (int.TryParse(tmdbId, out var parsedTmdbId))
+        {
+            return parsedTmdbId;
+        }
+
+        var imdbId = externalIds?
+            .FirstOrDefault(item => string.Equals(item.Provider, "imdb", StringComparison.OrdinalIgnoreCase))?
+            .Id;
+
+        if (!string.IsNullOrWhiteSpace(imdbId))
+        {
+            var findByImdb = await _client.FindByExternalIdAsync(imdbId, "imdb_id", context.Language, cancellationToken);
+            if (findByImdb.TvResults.FirstOrDefault() is { } imdbMatch)
+            {
+                return imdbMatch.Id;
+            }
+        }
+
+        var tvdbId = externalIds?
+            .FirstOrDefault(item => string.Equals(item.Provider, "tvdb", StringComparison.OrdinalIgnoreCase))?
+            .Id;
+
+        if (!string.IsNullOrWhiteSpace(tvdbId))
+        {
+            var findByTvdb = await _client.FindByExternalIdAsync(tvdbId, "tvdb_id", context.Language, cancellationToken);
+            if (findByTvdb.TvResults.FirstOrDefault() is { } tvdbMatch)
+            {
+                return tvdbMatch.Id;
+            }
+        }
+
+        return null;
+    }
+
     private static ShowMetadataModel MapShow(TmdbTvDetails show, bool includeSeasonEpisodes, string country)
     {
         var seasons = (show.Seasons ?? [])
@@ -219,6 +312,110 @@ public sealed class TmdbTvSource : ITvMetadataSource
             Producers = Crew((episode as TmdbEpisodeDetails)?.Credits?.Crew, "Producer", "Executive Producer"),
             Writers = Crew((episode as TmdbEpisodeDetails)?.Credits?.Crew, "Writer", "Screenplay", "Story")
         };
+
+    private static IReadOnlyList<ExtraMetadataModel> BuildExtras(IEnumerable<TmdbVideoResult>? videos, string? fallbackThumb, string? fallbackArt, DateOnly? fallbackDate)
+    {
+        var items = (videos ?? [])
+            .Where(video => !string.IsNullOrWhiteSpace(video.Key) && !string.IsNullOrWhiteSpace(video.Name))
+            .Select(video => new
+            {
+                Video = video,
+                Subtype = MapSubtype(video.Type),
+                SortOrder = SortOrder(video.Type),
+                PublishedAt = ParsePublishedAt(video.PublishedAt)
+            })
+            .OrderBy(item => item.SortOrder)
+            .ThenBy(item => item.Video.Official ? 0 : 1)
+            .ThenByDescending(item => item.PublishedAt)
+            .ThenBy(item => item.Video.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var results = new List<ExtraMetadataModel>(items.Count);
+        var primaryAssigned = false;
+
+        for (var index = 0; index < items.Count; index++)
+        {
+            var item = items[index];
+            var isPrimary = !primaryAssigned && item.Subtype == "trailer";
+            if (isPrimary)
+            {
+                primaryAssigned = true;
+            }
+
+            results.Add(new ExtraMetadataModel
+            {
+                SourceKey = "tmdb",
+                SourceId = !string.IsNullOrWhiteSpace(item.Video.Id)
+                    ? item.Video.Id!
+                    : $"{item.Video.Site?.ToLowerInvariant()}:{item.Video.Key}",
+                Title = item.Video.Name!,
+                Subtype = item.Subtype,
+                Summary = BuildSummary(item.Video),
+                ThumbUrl = BuildVideoThumb(item.Video) ?? fallbackThumb,
+                ArtUrl = fallbackArt,
+                OriginallyAvailableAt = item.PublishedAt is DateTimeOffset publishedAt
+                    ? DateOnly.FromDateTime(publishedAt.UtcDateTime)
+                    : fallbackDate,
+                DurationMilliseconds = null,
+                Year = item.PublishedAt?.Year ?? fallbackDate?.Year,
+                Index = index + 1,
+                IsPrimary = isPrimary
+            });
+        }
+
+        return results;
+    }
+
+    private static string MapSubtype(string? videoType)
+        => videoType?.Trim() switch
+        {
+            "Trailer" => "trailer",
+            "Teaser" => "trailer",
+            "Behind the Scenes" => "behindTheScenes",
+            "Interview" => "interview",
+            "Featurette" => "featurette",
+            "Clip" => "sceneOrSample",
+            "Scene" => "sceneOrSample",
+            "Deleted Scene" => "deletedScene",
+            "Short" => "short",
+            _ => "other"
+        };
+
+    private static int SortOrder(string? videoType)
+        => videoType?.Trim() switch
+        {
+            "Trailer" => 0,
+            "Teaser" => 1,
+            "Behind the Scenes" => 2,
+            "Interview" => 3,
+            "Featurette" => 4,
+            "Clip" => 5,
+            "Scene" => 5,
+            "Deleted Scene" => 6,
+            "Short" => 7,
+            _ => 8
+        };
+
+    private static string? BuildSummary(TmdbVideoResult video)
+    {
+        var site = NullIfWhiteSpace(video.Site);
+        var type = NullIfWhiteSpace(video.Type);
+        var published = ParsePublishedAt(video.PublishedAt)?.ToString("yyyy-MM-dd");
+
+        var parts = new[] { type, site, published }
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .ToList();
+
+        return parts.Count == 0 ? null : string.Join(" • ", parts);
+    }
+
+    private static string? BuildVideoThumb(TmdbVideoResult video)
+        => string.Equals(video.Site, "YouTube", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(video.Key)
+            ? $"https://i.ytimg.com/vi/{video.Key}/hqdefault.jpg"
+            : null;
+
+    private static DateTimeOffset? ParsePublishedAt(string? value)
+        => DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
 
     private static IReadOnlyList<SourceImage> BuildShowImages(TmdbTvDetails show)
         => DistinctImages(
@@ -327,12 +524,10 @@ public sealed class TmdbTvSource : ITvMetadataSource
     private static string? TvContentRating(TmdbTvDetails show, string country)
     {
         var rating = show.ContentRatings?.Results?
-            .FirstOrDefault(item => string.Equals(item.Iso31661, country, StringComparison.OrdinalIgnoreCase))?
-            .Rating;
+            .FirstOrDefault(item => string.Equals(item.Iso31661, country, StringComparison.OrdinalIgnoreCase))?.Rating;
 
         rating ??= show.ContentRatings?.Results?
-            .FirstOrDefault(item => string.Equals(item.Iso31661, "US", StringComparison.OrdinalIgnoreCase))?
-            .Rating;
+            .FirstOrDefault(item => string.Equals(item.Iso31661, "US", StringComparison.OrdinalIgnoreCase))?.Rating;
 
         if (string.IsNullOrWhiteSpace(rating))
         {

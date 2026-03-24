@@ -101,7 +101,7 @@ public sealed class TmdbClient : ITmdbClient
             new Dictionary<string, string?>
             {
                 ["language"] = language,
-                ["append_to_response"] = "credits,images,external_ids,release_dates",
+                ["append_to_response"] = "credits,images,external_ids,release_dates,videos",
                 ["include_image_language"] = "null,en"
             },
             cancellationToken);
@@ -113,7 +113,7 @@ public sealed class TmdbClient : ITmdbClient
             new Dictionary<string, string?>
             {
                 ["language"] = language,
-                ["append_to_response"] = "aggregate_credits,images,external_ids,content_ratings",
+                ["append_to_response"] = "aggregate_credits,images,external_ids,content_ratings,videos",
                 ["include_image_language"] = "null,en"
             },
             cancellationToken);
@@ -125,7 +125,7 @@ public sealed class TmdbClient : ITmdbClient
             new Dictionary<string, string?>
             {
                 ["language"] = language,
-                ["append_to_response"] = "credits,images,external_ids",
+                ["append_to_response"] = "credits,images,external_ids,videos",
                 ["include_image_language"] = "null,en"
             },
             cancellationToken);
@@ -137,7 +137,7 @@ public sealed class TmdbClient : ITmdbClient
             new Dictionary<string, string?>
             {
                 ["language"] = language,
-                ["append_to_response"] = "credits,images,external_ids",
+                ["append_to_response"] = "credits,images,external_ids,videos",
                 ["include_image_language"] = "null,en"
             },
             cancellationToken);

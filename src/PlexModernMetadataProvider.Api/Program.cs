@@ -24,9 +24,11 @@ builder.Services.AddHttpClient<TvMazeTvSource>();
 builder.Services.AddSingleton<FilenameParser>();
 builder.Services.AddSingleton<RankingService>();
 builder.Services.AddSingleton<PlexMapper>();
-builder.Services.AddScoped<IMovieMetadataSource, TmdbMovieSource>();
+builder.Services.AddScoped<TmdbMovieSource>();
+builder.Services.AddScoped<IMovieMetadataSource>(serviceProvider => serviceProvider.GetRequiredService<TmdbMovieSource>());
 builder.Services.AddScoped<IMovieMetadataSource>(serviceProvider => serviceProvider.GetRequiredService<OmdbMovieSource>());
-builder.Services.AddScoped<ITvMetadataSource, TmdbTvSource>();
+builder.Services.AddScoped<TmdbTvSource>();
+builder.Services.AddScoped<ITvMetadataSource>(serviceProvider => serviceProvider.GetRequiredService<TmdbTvSource>());
 builder.Services.AddScoped<ITvMetadataSource>(serviceProvider => serviceProvider.GetRequiredService<TvMazeTvSource>());
 builder.Services.AddScoped<MetadataSourceRegistry>();
 builder.Services.AddScoped<MatchService>();
@@ -92,8 +94,11 @@ app.MapGet($"{ProviderDefinitions.MovieBasePath}{ProviderDefinitions.MetadataPat
     });
 
 app.MapGet($"{ProviderDefinitions.MovieBasePath}{ProviderDefinitions.MetadataPath}/{{ratingKey}}{ProviderDefinitions.ExtrasPath}",
-    (string ratingKey, MetadataService service, HttpRequest httpRequest) =>
-        Results.Ok(service.GetMovieExtras(BuildExtrasPaging(httpRequest))));
+    async Task<IResult> (string ratingKey, MetadataService service, HttpRequest httpRequest, IOptions<ProviderOptions> options, CancellationToken cancellationToken) =>
+    {
+        var result = await service.GetMovieExtrasAsync(ratingKey, BuildContext(httpRequest, options.Value), BuildExtrasPaging(httpRequest), cancellationToken);
+        return Results.Ok(result);
+    });
 
 app.MapGet(ProviderDefinitions.TvBasePath, () => Results.Ok(ProviderDefinitions.CreateTvProvider()));
 app.MapPost($"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MatchPath}",
@@ -144,8 +149,11 @@ app.MapGet($"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MetadataPath}/
     });
 
 app.MapGet($"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MetadataPath}/{{ratingKey}}{ProviderDefinitions.ExtrasPath}",
-    (string ratingKey, MetadataService service, HttpRequest httpRequest) =>
-        Results.Ok(service.GetTvExtras(BuildExtrasPaging(httpRequest))));
+    async Task<IResult> (string ratingKey, MetadataService service, HttpRequest httpRequest, IOptions<ProviderOptions> options, CancellationToken cancellationToken) =>
+    {
+        var result = await service.GetTvExtrasAsync(ratingKey, BuildContext(httpRequest, options.Value), BuildExtrasPaging(httpRequest), cancellationToken);
+        return Results.Ok(result);
+    });
 
 app.MapGet($"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MetadataPath}/{{ratingKey}}/children",
     async Task<IResult> (string ratingKey, MetadataService service, HttpRequest httpRequest, IOptions<ProviderOptions> options, CancellationToken cancellationToken) =>

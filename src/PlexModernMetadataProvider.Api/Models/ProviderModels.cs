@@ -73,6 +73,22 @@ public sealed class MovieMetadataModel
     public IReadOnlyList<PersonCredit>? Writers { get; init; }
 }
 
+public sealed class ExtraMetadataModel
+{
+    public required string SourceKey { get; init; }
+    public required string SourceId { get; init; }
+    public required string Title { get; init; }
+    public required string Subtype { get; init; }
+    public string? Summary { get; init; }
+    public string? ThumbUrl { get; init; }
+    public string? ArtUrl { get; init; }
+    public DateOnly? OriginallyAvailableAt { get; init; }
+    public int? DurationMilliseconds { get; init; }
+    public int? Year { get; init; }
+    public int Index { get; init; }
+    public bool IsPrimary { get; init; }
+}
+
 public sealed class ShowMetadataModel
 {
     public required string SourceKey { get; init; }

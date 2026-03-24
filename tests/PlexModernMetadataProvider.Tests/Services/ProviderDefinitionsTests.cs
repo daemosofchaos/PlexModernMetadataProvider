@@ -8,24 +8,28 @@ public sealed class ProviderDefinitionsTests
     [TestMethod]
     public void Route_Composition_Produces_PlexExpected_MovieMatchPath()
     {
-        Assert.AreEqual("/movie/library/metadata/matches", $"{ProviderDefinitions.MovieBasePath}{ProviderDefinitions.MatchPath}");
+        var actual = $"{ProviderDefinitions.MovieBasePath}{ProviderDefinitions.MatchPath}";
+        Assert.AreEqual("/movie/library/metadata/matches", actual);
     }
 
     [TestMethod]
     public void Route_Composition_Produces_PlexExpected_TvMatchPath()
     {
-        Assert.AreEqual("/tv/library/metadata/matches", $"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MatchPath}");
+        var actual = $"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MatchPath}";
+        Assert.AreEqual("/tv/library/metadata/matches", actual);
     }
 
     [TestMethod]
     public void Route_Composition_Produces_PlexExpected_MovieExtrasPath()
     {
-        Assert.AreEqual("/movie/library/metadata/{ratingKey}/extras".Replace("{ratingKey}", "movie-tmdb-123"), $"{ProviderDefinitions.MovieBasePath}{ProviderDefinitions.MetadataPath}/movie-tmdb-123{ProviderDefinitions.ExtrasPath}");
+        var actual = $"{ProviderDefinitions.MovieBasePath}{ProviderDefinitions.MetadataPath}/movie-tmdb-123{ProviderDefinitions.ExtrasPath}";
+        Assert.AreEqual("/movie/library/metadata/movie-tmdb-123/extras", actual);
     }
 
     [TestMethod]
     public void Route_Composition_Produces_PlexExpected_TvExtrasPath()
     {
-        Assert.AreEqual("/tv/library/metadata/{ratingKey}/extras".Replace("{ratingKey}", "show-tvmaze-123"), $"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MetadataPath}/show-tvmaze-123{ProviderDefinitions.ExtrasPath}");
+        var actual = $"{ProviderDefinitions.TvBasePath}{ProviderDefinitions.MetadataPath}/show-tvmaze-123{ProviderDefinitions.ExtrasPath}";
+        Assert.AreEqual("/tv/library/metadata/show-tvmaze-123/extras", actual);
     }
 }

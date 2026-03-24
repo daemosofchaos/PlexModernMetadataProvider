@@ -36,7 +36,7 @@ public sealed class PlexMapper
         };
     }
 
-    public MovieMetadataItem MapMovie(MovieMetadataModel movie)
+    public MovieMetadataItem MapMovie(MovieMetadataModel movie, string? primaryExtraKey = null)
     {
         var ratingKey = RatingKeys.BuildMovie(movie.SourceKey, movie.SourceId);
 
@@ -58,6 +58,7 @@ public sealed class PlexMapper
             Duration = RuntimeMilliseconds(movie.RuntimeMinutes),
             Tagline = NullIfWhiteSpace(movie.Tagline),
             Studio = NullIfWhiteSpace(movie.Studio),
+            PrimaryExtraKey = NullIfWhiteSpace(primaryExtraKey),
             Image = MovieImages(movie),
             Genre = Tags(movie.Genres),
             ExtensionData = BuildMovieExtensionData(movie),
@@ -67,6 +68,26 @@ public sealed class PlexMapper
             Producer = People(movie.Producers),
             Writer = People(movie.Writers),
             Rating = Rating(movie.Rating, movie.RatingImage ?? $"{movie.SourceKey}://image.rating")
+        };
+    }
+
+    public ClipMetadataItem MapMovieExtra(MovieMetadataModel movie, ExtraMetadataModel extra)
+    {
+        var ratingKey = RatingKeys.BuildMovieExtra(movie.SourceKey, movie.SourceId, extra.Index);
+        return new ClipMetadataItem
+        {
+            RatingKey = ratingKey,
+            Key = RatingKeys.BuildMetadataKey(ProviderDefinitions.MovieBasePath, ratingKey),
+            Guid = RatingKeys.BuildClipGuid(ProviderDefinitions.MovieIdentifier, ratingKey),
+            Title = extra.Title,
+            Summary = NullIfWhiteSpace(extra.Summary),
+            Thumb = extra.ThumbUrl ?? movie.ThumbUrl,
+            Art = extra.ArtUrl ?? movie.ArtUrl,
+            Duration = extra.DurationMilliseconds,
+            OriginallyAvailableAt = SafeDate(extra.OriginallyAvailableAt ?? movie.ReleaseDate),
+            Year = extra.Year ?? extra.OriginallyAvailableAt?.Year ?? movie.ReleaseDate?.Year,
+            Index = extra.Index,
+            Subtype = extra.Subtype
         };
     }
 
@@ -113,6 +134,26 @@ public sealed class PlexMapper
         };
     }
 
+    public ClipMetadataItem MapShowExtra(ShowMetadataModel show, ExtraMetadataModel extra)
+    {
+        var ratingKey = RatingKeys.BuildShowExtra(show.SourceKey, show.SourceId, extra.Index);
+        return new ClipMetadataItem
+        {
+            RatingKey = ratingKey,
+            Key = RatingKeys.BuildMetadataKey(ProviderDefinitions.TvBasePath, ratingKey),
+            Guid = RatingKeys.BuildClipGuid(ProviderDefinitions.TvIdentifier, ratingKey),
+            Title = extra.Title,
+            Summary = NullIfWhiteSpace(extra.Summary),
+            Thumb = extra.ThumbUrl ?? show.ThumbUrl,
+            Art = extra.ArtUrl ?? show.ArtUrl,
+            Duration = extra.DurationMilliseconds,
+            OriginallyAvailableAt = SafeDate(extra.OriginallyAvailableAt ?? show.FirstAirDate),
+            Year = extra.Year ?? extra.OriginallyAvailableAt?.Year ?? show.FirstAirDate?.Year,
+            Index = extra.Index,
+            Subtype = extra.Subtype
+        };
+    }
+
     public SeasonMetadataItem MapSeason(ShowMetadataModel show, SeasonMetadataModel season, bool includeChildren)
     {
         var showRatingKey = RatingKeys.BuildShow(show.SourceKey, show.SourceId);
@@ -145,6 +186,26 @@ public sealed class PlexMapper
                     Metadata = episodes.Select(episode => (object)MapEpisode(show, season, episode)).ToList()
                 }
                 : null
+        };
+    }
+
+    public ClipMetadataItem MapSeasonExtra(ShowMetadataModel show, SeasonMetadataModel season, ExtraMetadataModel extra)
+    {
+        var ratingKey = RatingKeys.BuildSeasonExtra(show.SourceKey, show.SourceId, season.SeasonNumber, extra.Index);
+        return new ClipMetadataItem
+        {
+            RatingKey = ratingKey,
+            Key = RatingKeys.BuildMetadataKey(ProviderDefinitions.TvBasePath, ratingKey),
+            Guid = RatingKeys.BuildClipGuid(ProviderDefinitions.TvIdentifier, ratingKey),
+            Title = extra.Title,
+            Summary = NullIfWhiteSpace(extra.Summary),
+            Thumb = extra.ThumbUrl ?? season.ThumbUrl ?? show.ThumbUrl,
+            Art = extra.ArtUrl ?? season.ArtUrl ?? show.ArtUrl,
+            Duration = extra.DurationMilliseconds,
+            OriginallyAvailableAt = SafeDate(extra.OriginallyAvailableAt ?? season.AirDate ?? show.FirstAirDate),
+            Year = extra.Year ?? extra.OriginallyAvailableAt?.Year ?? season.AirDate?.Year ?? show.FirstAirDate?.Year,
+            Index = extra.Index,
+            Subtype = extra.Subtype
         };
     }
 
@@ -188,17 +249,61 @@ public sealed class PlexMapper
         };
     }
 
+    public ClipMetadataItem MapEpisodeExtra(ShowMetadataModel show, SeasonMetadataModel season, EpisodeMetadataModel episode, ExtraMetadataModel extra)
+    {
+        var ratingKey = RatingKeys.BuildEpisodeExtra(show.SourceKey, show.SourceId, season.SeasonNumber, episode.EpisodeNumber, extra.Index);
+        return new ClipMetadataItem
+        {
+            RatingKey = ratingKey,
+            Key = RatingKeys.BuildMetadataKey(ProviderDefinitions.TvBasePath, ratingKey),
+            Guid = RatingKeys.BuildClipGuid(ProviderDefinitions.TvIdentifier, ratingKey),
+            Title = extra.Title,
+            Summary = NullIfWhiteSpace(extra.Summary),
+            Thumb = extra.ThumbUrl ?? episode.ThumbUrl ?? show.ThumbUrl,
+            Art = extra.ArtUrl ?? episode.ArtUrl ?? show.ArtUrl,
+            Duration = extra.DurationMilliseconds,
+            OriginallyAvailableAt = SafeDate(extra.OriginallyAvailableAt ?? episode.AirDate ?? season.AirDate ?? show.FirstAirDate),
+            Year = extra.Year ?? extra.OriginallyAvailableAt?.Year ?? episode.AirDate?.Year ?? season.AirDate?.Year ?? show.FirstAirDate?.Year,
+            Index = extra.Index,
+            Subtype = extra.Subtype
+        };
+    }
+
     public List<PlexImage>? MovieImages(MovieMetadataModel movie)
         => ToPlexImages(movie.Images, Fallback(movie.ThumbUrl, "coverPoster", movie.Title), Fallback(movie.ArtUrl, "background", movie.Title));
+
+    public List<PlexImage>? MovieExtraImages(ExtraMetadataModel extra)
+        => ToPlexImages(
+            null,
+            Fallback(extra.ThumbUrl, "snapshot", extra.Title),
+            Fallback(extra.ArtUrl, "background", extra.Title));
 
     public List<PlexImage>? ShowImages(ShowMetadataModel show)
         => ToPlexImages(show.Images, Fallback(show.ThumbUrl, "coverPoster", show.Title), Fallback(show.ArtUrl, "background", show.Title));
 
+    public List<PlexImage>? ShowExtraImages(ExtraMetadataModel extra)
+        => ToPlexImages(
+            null,
+            Fallback(extra.ThumbUrl, "snapshot", extra.Title),
+            Fallback(extra.ArtUrl, "background", extra.Title));
+
     public List<PlexImage>? SeasonImages(ShowMetadataModel show, SeasonMetadataModel season)
         => ToPlexImages(season.Images, Fallback(season.ThumbUrl ?? show.ThumbUrl, "coverPoster", season.Title), Fallback(season.ArtUrl ?? show.ArtUrl, "background", show.Title));
 
+    public List<PlexImage>? SeasonExtraImages(ShowMetadataModel show, SeasonMetadataModel season, ExtraMetadataModel extra)
+        => ToPlexImages(
+            null,
+            Fallback(extra.ThumbUrl ?? season.ThumbUrl ?? show.ThumbUrl, "snapshot", extra.Title),
+            Fallback(extra.ArtUrl ?? season.ArtUrl ?? show.ArtUrl, "background", season.Title));
+
     public List<PlexImage>? EpisodeImages(ShowMetadataModel show, EpisodeMetadataModel episode)
         => ToPlexImages(episode.Images, Fallback(episode.ThumbUrl ?? show.ThumbUrl, "snapshot", episode.Title), Fallback(episode.ArtUrl ?? show.ArtUrl, "background", show.Title));
+
+    public List<PlexImage>? EpisodeExtraImages(ShowMetadataModel show, SeasonMetadataModel season, EpisodeMetadataModel episode, ExtraMetadataModel extra)
+        => ToPlexImages(
+            null,
+            Fallback(extra.ThumbUrl ?? episode.ThumbUrl ?? show.ThumbUrl, "snapshot", extra.Title),
+            Fallback(extra.ArtUrl ?? episode.ArtUrl ?? season.ArtUrl ?? show.ArtUrl, "background", episode.Title));
 
     private static string SafeDate(DateOnly? value)
         => value?.ToString("yyyy-MM-dd") ?? "1900-01-01";

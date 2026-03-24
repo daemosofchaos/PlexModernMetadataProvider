@@ -208,6 +208,10 @@ public sealed class MovieMetadataItem
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Studio { get; init; }
 
+    [JsonPropertyName("primaryExtraKey")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PrimaryExtraKey { get; init; }
+
     [JsonPropertyName("Image")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<PlexImage>? Image { get; init; }
@@ -532,4 +536,52 @@ public sealed class EpisodeMetadataItem
     [JsonPropertyName("Writer")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<PlexPerson>? Writer { get; init; }
+}
+
+public sealed class ClipMetadataItem
+{
+    [JsonPropertyName("ratingKey")]
+    public required string RatingKey { get; init; }
+
+    [JsonPropertyName("key")]
+    public required string Key { get; init; }
+
+    [JsonPropertyName("guid")]
+    public required string Guid { get; init; }
+
+    [JsonPropertyName("type")]
+    public string Type => "clip";
+
+    [JsonPropertyName("title")]
+    public required string Title { get; init; }
+
+    [JsonPropertyName("summary")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Summary { get; init; }
+
+    [JsonPropertyName("thumb")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Thumb { get; init; }
+
+    [JsonPropertyName("art")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Art { get; init; }
+
+    [JsonPropertyName("duration")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Duration { get; init; }
+
+    [JsonPropertyName("originallyAvailableAt")]
+    public required string OriginallyAvailableAt { get; init; }
+
+    [JsonPropertyName("year")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Year { get; init; }
+
+    [JsonPropertyName("index")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Index { get; init; }
+
+    [JsonPropertyName("subtype")]
+    public required string Subtype { get; init; }
 }
