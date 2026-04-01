@@ -66,6 +66,7 @@ This implementation is intended to be:
 - Exact-title preference over loose title matches
 - Date-aware ambiguous-title selection
 - Global ranking across the configured source order
+- Optional **Plex API reconciliation** so new matches can align with items that already exist in your Plex library
 
 ### TV support
 
@@ -281,7 +282,147 @@ Provider__TMDb__ApiKey=
 Provider__TMDb__ReadAccessToken=
 Provider__TMDb__RequestTimeoutSeconds=15
 Provider__TMDb__CacheTtlMinutes=15
+Provider__Plex__EnableReconciliation=false
+Provider__Plex__BaseUrl=http://host.docker.internal:32400
+Provider__Plex__Token=
+Provider__Plex__RequestTimeoutSeconds=10
+Provider__Plex__CacheTtlMinutes=5
 ```
+
+### Optional Plex reconciliation
+
+The provider can optionally query **your Plex server first** before it performs its normal source search. This is designed to reduce the chance of creating a second match for a movie or show that Plex has **already matched previously** using another provider such as **Plex Series** or **Plex Movie**.
+
+#### What problem it solves
+
+Without reconciliation, a custom provider can still return a perfectly valid result, but Plex may treat it as a separate provider-owned identity if the existing item in the library was originally matched through a different primary provider. That can lead to:
+
+- split or duplicate shows
+- rescans drifting to a different canonical source
+- season and episode requests resolving against the wrong show when titles collide
+
+#### How it works
+
+When reconciliation is enabled, the provider does this before normal matching:
+
+1. Searches **your Plex library** over the Plex HTTP API using the requested title and media type.
+2. Requests Plex GUID information with `includeGuids=1`.
+3. Parses the existing item's GUID data and extracts supported external IDs such as:
+   - `tmdb://...`
+   - `tvdb://...`
+   - `imdb://...`
+   - `tvmaze://...`
+4. Ignores Plex-local GUIDs such as `plex://...`, because those are server-local identities and cannot be used as stable custom-provider keys.
+5. Tries to resolve one of the configured upstream sources to that same external identity.
+6. If successful, returns metadata for that same canonical item and skips the normal title search path.
+7. If Plex returns no good existing candidate, or the result is still ambiguous, the provider falls back to the normal ranking/search behavior.
+
+#### What gets reconciled
+
+- **Movies**: direct movie match reconciliation
+- **Shows**: direct show reconciliation
+- **Seasons**: the provider reconciles the **parent show** first, then resolves the requested season from that show
+- **Episodes**: the provider reconciles the **parent show** first, then resolves the episode by season/episode number or by air date
+
+#### What it does not do
+
+Reconciliation is intentionally conservative. It does **not**:
+
+- reuse Plex's local DB `ratingKey` as the provider key
+- read Plex's SQLite database directly
+- force a match when Plex returns multiple exact same-title candidates without a distinguishing year
+- automatically merge items that are **already split** in an existing library
+
+For already-split items, you will usually still need a one-time cleanup step after enabling reconciliation:
+
+- **Refresh Metadata**
+- **Fix Match**
+- or **Unmatch + Match**
+
+#### When to enable it
+
+Enable reconciliation if any of these are true:
+
+- you already have a populated Plex library and want new scans to align with existing matches
+- you are migrating from **Plex Series** / **Plex Movie** to this provider
+- you are seeing duplicate or split shows after introducing the custom provider
+- you want future rescans to prefer the same canonical external IDs Plex already knows about
+
+If you are starting with a completely new, empty library, reconciliation is optional rather than required.
+
+#### Configuration keys
+
+```text
+Provider__Plex__EnableReconciliation=false
+Provider__Plex__BaseUrl=http://host.docker.internal:32400
+Provider__Plex__Token=
+Provider__Plex__RequestTimeoutSeconds=10
+Provider__Plex__CacheTtlMinutes=5
+```
+
+#### Recommended values by environment
+
+##### Provider in Docker, Plex on the Windows host
+
+```text
+Provider__Plex__EnableReconciliation=true
+Provider__Plex__BaseUrl=http://host.docker.internal:32400
+Provider__Plex__Token=YOUR_PLEX_TOKEN
+```
+
+##### Provider and Plex on the same Docker network
+
+Use the Plex container or service name instead of `host.docker.internal`:
+
+```text
+Provider__Plex__EnableReconciliation=true
+Provider__Plex__BaseUrl=http://plex:32400
+Provider__Plex__Token=YOUR_PLEX_TOKEN
+```
+
+##### Local development without Docker
+
+```text
+Provider__Plex__EnableReconciliation=true
+Provider__Plex__BaseUrl=http://localhost:32400
+Provider__Plex__Token=YOUR_PLEX_TOKEN
+```
+
+#### Minimal setup example
+
+```text
+Provider__MovieSourceOrder=Omdb,Tmdb
+Provider__TvSourceOrder=TvMaze,Tmdb
+Provider__OMDb__ApiKey=your_omdb_api_key
+Provider__TMDb__ReadAccessToken=your_tmdb_read_access_token
+Provider__Plex__EnableReconciliation=true
+Provider__Plex__BaseUrl=http://host.docker.internal:32400
+Provider__Plex__Token=YOUR_PLEX_TOKEN
+```
+
+#### Timeouts and cache
+
+- `Provider__Plex__RequestTimeoutSeconds` controls how long the provider will wait for the Plex HTTP API before giving up and falling back to normal matching.
+- `Provider__Plex__CacheTtlMinutes` controls how long successful Plex reconciliation lookups are cached in memory.
+
+If the Plex API is slow or temporarily unavailable, the provider logs a warning and continues with its normal source search rather than failing the entire match request.
+
+#### Security note
+
+Treat the Plex token like a credential. Do **not** commit it into source control, and prefer keeping it only in `.env`, your container environment, or a secrets manager.
+
+#### Troubleshooting reconciliation
+
+If reconciliation appears to do nothing, check these in order:
+
+1. `Provider__Plex__EnableReconciliation=true`
+2. `Provider__Plex__BaseUrl` is reachable **from the provider container/process**, not just from your browser
+3. `Provider__Plex__Token` is valid
+4. Plex already has a matching movie/show in the library
+5. That existing item exposes useful external GUIDs such as TMDb / TVDb / IMDb / TVMaze
+6. The configured upstream sources can resolve one of those external IDs
+
+If Plex returns multiple same-title items with no distinguishing year, the provider intentionally avoids forcing a reconciliation match and falls back to normal ranking.
 
 ---
 
@@ -375,8 +516,9 @@ Movie: http://plex-modern-metadata-provider-dotnet:3000/movie
 4. Add the Movie provider URL.
 5. Create or assign custom agents for the relevant library types.
 6. Make this provider the **primary** provider if you want its matching logic to drive metadata selection.
-7. Keep local media assets enabled afterward if you also want local posters, backgrounds, or subtitle-related local data.
-8. Refresh metadata for the target library.
+7. If you want the provider to reconcile against items already matched in Plex, configure the optional Plex reconciliation settings in `.env` before you refresh the library.
+8. Keep local media assets enabled afterward if you also want local posters, backgrounds, or subtitle-related local data.
+9. Refresh metadata for the target library.
 
 ---
 
@@ -464,6 +606,8 @@ GET  /tv/library/metadata/{ratingKey}/children
 - No collection endpoint yet
 - No persistent cache yet
 - No provider-side authentication layer yet
+- Plex reconciliation depends on the Plex HTTP API being reachable and exposing useful external GUIDs
+- Existing items that are already split in Plex may still need a one-time **Fix Match** or **Refresh Metadata** pass after reconciliation is enabled
 - Upstream metadata quality still depends on the chosen source
 
 ---

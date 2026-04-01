@@ -11,19 +11,22 @@ public sealed class MatchService
     private readonly FilenameParser _filenameParser;
     private readonly PlexMapper _plexMapper;
     private readonly ProviderOptions _options;
+    private readonly IPlexReconciliationService _plexReconciliationService;
 
     public MatchService(
         MetadataSourceRegistry sourceRegistry,
         RankingService rankingService,
         FilenameParser filenameParser,
         PlexMapper plexMapper,
-        IOptions<ProviderOptions> options)
+        IOptions<ProviderOptions> options,
+        IPlexReconciliationService plexReconciliationService)
     {
         _sourceRegistry = sourceRegistry;
         _rankingService = rankingService;
         _filenameParser = filenameParser;
         _plexMapper = plexMapper;
         _options = options.Value;
+        _plexReconciliationService = plexReconciliationService;
     }
 
     public Task<MetadataResponse> MatchAsync(MatchRequest request, PlexRequestContext context, CancellationToken cancellationToken = default)
@@ -97,6 +100,66 @@ public sealed class MatchService
             if (result is not null)
             {
                 return result;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<MovieMetadataModel?> ResolveMovieByExistingPlexMatchAsync(MatchRequest request, PlexRequestContext context, CancellationToken cancellationToken)
+    {
+        if (!_plexReconciliationService.IsEnabled)
+        {
+            return null;
+        }
+
+        var existing = await _plexReconciliationService.FindExistingMovieAsync(RequestedTitle(request), RequestedYear(request), cancellationToken);
+        return existing is null
+            ? null
+            : await ResolveMovieByExternalIdsAsync(existing.ExternalIds, context, cancellationToken);
+    }
+
+    private async Task<ShowMetadataModel?> ResolveShowByExistingPlexMatchAsync(MatchRequest request, PlexRequestContext context, string? titleOverride, CancellationToken cancellationToken)
+    {
+        if (!_plexReconciliationService.IsEnabled)
+        {
+            return null;
+        }
+
+        var existing = await _plexReconciliationService.FindExistingShowAsync(RequestedTitle(request, titleOverride), RequestedYear(request), cancellationToken);
+        return existing is null
+            ? null
+            : await ResolveShowByExternalIdsAsync(existing.ExternalIds, context, cancellationToken);
+    }
+
+    private async Task<MovieMetadataModel?> ResolveMovieByExternalIdsAsync(IReadOnlyList<ExternalIdValue>? externalIds, PlexRequestContext context, CancellationToken cancellationToken)
+    {
+        foreach (var source in _sourceRegistry.GetMovieSources())
+        {
+            foreach (var external in PreferredExternalIds(externalIds))
+            {
+                var resolved = await source.FindByExternalGuidAsync(new ExternalGuid(external.Provider, external.Id), context, cancellationToken);
+                if (resolved is not null)
+                {
+                    return resolved;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<ShowMetadataModel?> ResolveShowByExternalIdsAsync(IReadOnlyList<ExternalIdValue>? externalIds, PlexRequestContext context, CancellationToken cancellationToken)
+    {
+        foreach (var source in _sourceRegistry.GetTvSources())
+        {
+            foreach (var external in PreferredExternalIds(externalIds))
+            {
+                var resolved = await source.FindByExternalGuidAsync(new ExternalGuid(external.Provider, external.Id), context, cancellationToken);
+                if (resolved is not null)
+                {
+                    return resolved;
+                }
             }
         }
 
@@ -178,6 +241,12 @@ public sealed class MatchService
             return _plexMapper.WrapMetadata(ProviderDefinitions.MovieIdentifier, [_plexMapper.MapMovie(byGuid)]);
         }
 
+        var reconciled = await ResolveMovieByExistingPlexMatchAsync(request, context, cancellationToken);
+        if (reconciled is not null)
+        {
+            return _plexMapper.WrapMetadata(ProviderDefinitions.MovieIdentifier, [_plexMapper.MapMovie(reconciled)]);
+        }
+
         var candidates = await SearchMoviesAsync(request, context, cancellationToken);
         if (candidates.Count == 0)
         {
@@ -224,6 +293,12 @@ public sealed class MatchService
         if (byGuid is not null)
         {
             return _plexMapper.WrapMetadata(ProviderDefinitions.TvIdentifier, [_plexMapper.MapShow(byGuid, request.IncludeChildren == 1)]);
+        }
+
+        var reconciled = await ResolveShowByExistingPlexMatchAsync(request, context, null, cancellationToken);
+        if (reconciled is not null)
+        {
+            return _plexMapper.WrapMetadata(ProviderDefinitions.TvIdentifier, [_plexMapper.MapShow(reconciled, request.IncludeChildren == 1)]);
         }
 
         var candidates = await SearchShowsAsync(request, context, null, cancellationToken);
@@ -277,6 +352,17 @@ public sealed class MatchService
             ? request.ParentTitle
             : _filenameParser.Parse(request.Filename).Title;
 
+        var reconciledShow = await ResolveShowByExistingPlexMatchAsync(request, context, parentTitle, cancellationToken);
+        if (reconciledShow is not null)
+        {
+            var source = _sourceRegistry.GetTvSource(reconciledShow.SourceKey);
+            var season = source is null ? null : await source.GetSeasonAsync(reconciledShow.SourceId, request.Index.Value, context, cancellationToken);
+            if (season is not null)
+            {
+                return _plexMapper.WrapMetadata(ProviderDefinitions.TvIdentifier, [_plexMapper.MapSeason(reconciledShow, season, request.IncludeChildren == 1)]);
+            }
+        }
+
         var candidates = await SearchShowsAsync(request, context, parentTitle, cancellationToken);
         foreach (var candidate in candidates)
         {
@@ -309,6 +395,41 @@ public sealed class MatchService
         var grandparentTitle = !string.IsNullOrWhiteSpace(request.GrandparentTitle)
             ? request.GrandparentTitle
             : _filenameParser.Parse(request.Filename).Title;
+
+        var reconciledShow = await ResolveShowByExistingPlexMatchAsync(request, context, grandparentTitle, cancellationToken);
+        if (reconciledShow is not null)
+        {
+            var source = _sourceRegistry.GetTvSource(reconciledShow.SourceKey);
+            if (source is not null)
+            {
+                if (request.ParentIndex.HasValue && request.Index.HasValue)
+                {
+                    var season = await source.GetSeasonAsync(reconciledShow.SourceId, request.ParentIndex.Value, context, cancellationToken);
+                    var episode = await source.GetEpisodeAsync(reconciledShow.SourceId, request.ParentIndex.Value, request.Index.Value, context, cancellationToken);
+                    if (season is not null && episode is not null)
+                    {
+                        return _plexMapper.WrapMetadata(ProviderDefinitions.TvIdentifier, [_plexMapper.MapEpisode(reconciledShow, season, episode)]);
+                    }
+                }
+                else
+                {
+                    var reconciledParsedFilename = _filenameParser.Parse(request.Filename);
+                    var reconciledAirDateValue = request.Date ?? reconciledParsedFilename.AirDate;
+                    if (DateOnly.TryParse(reconciledAirDateValue, out var reconciledAirDate))
+                    {
+                        var episode = await source.GetEpisodeByAirDateAsync(reconciledShow.SourceId, reconciledAirDate, context, cancellationToken);
+                        if (episode is not null)
+                        {
+                            var season = await source.GetSeasonAsync(reconciledShow.SourceId, episode.SeasonNumber, context, cancellationToken);
+                            if (season is not null)
+                            {
+                                return _plexMapper.WrapMetadata(ProviderDefinitions.TvIdentifier, [_plexMapper.MapEpisode(reconciledShow, season, episode)]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         var candidates = await SearchShowsAsync(request, context, grandparentTitle, cancellationToken);
         if (candidates.Count == 0)
@@ -388,6 +509,32 @@ public sealed class MatchService
 
         return Empty(ProviderDefinitions.TvIdentifier);
     }
+
+    private static IEnumerable<ExternalIdValue> PreferredExternalIds(IReadOnlyList<ExternalIdValue>? externalIds)
+    {
+        if (externalIds is null || externalIds.Count == 0)
+        {
+            return [];
+        }
+
+        return externalIds
+            .Where(item => !string.IsNullOrWhiteSpace(item.Provider) && !string.IsNullOrWhiteSpace(item.Id))
+            .OrderBy(item => ProviderPriority(item.Provider))
+            .ThenBy(item => item.Provider, StringComparer.OrdinalIgnoreCase)
+            .DistinctBy(item => $"{item.Provider}:{item.Id}", StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static int ProviderPriority(string provider)
+        => provider.ToLowerInvariant() switch
+        {
+            "tmdb" => 0,
+            "tvmaze" => 1,
+            "omdb" => 2,
+            "tvdb" => 3,
+            "imdb" => 4,
+            _ => 10
+        };
 
     private static string CandidateKey(string sourceKey, string sourceId)
         => $"{sourceKey}:{sourceId}";

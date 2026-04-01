@@ -21,6 +21,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient<ITmdbClient, TmdbClient>();
 builder.Services.AddHttpClient<OmdbMovieSource>();
 builder.Services.AddHttpClient<TvMazeTvSource>();
+builder.Services.AddHttpClient<IPlexReconciliationService, PlexReconciliationService>();
 builder.Services.AddSingleton<FilenameParser>();
 builder.Services.AddSingleton<RankingService>();
 builder.Services.AddSingleton<PlexMapper>();
@@ -42,12 +43,13 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.MapGet("/health", (IOptions<ProviderOptions> options) => Results.Ok(new
+app.MapGet("/health", (IOptions<ProviderOptions> options, IPlexReconciliationService reconciliationService) => Results.Ok(new
 {
     ok = true,
     service = "plex-modern-metadata-provider-dotnet",
     movieSources = options.Value.MovieSourceOrder,
-    tvSources = options.Value.TvSourceOrder
+    tvSources = options.Value.TvSourceOrder,
+    plexReconciliationEnabled = reconciliationService.IsEnabled
 }));
 
 app.MapGet(ProviderDefinitions.MovieBasePath, () => Results.Ok(ProviderDefinitions.CreateMovieProvider()));

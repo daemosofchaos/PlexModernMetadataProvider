@@ -12,7 +12,7 @@ public static class ProviderDefinitions
 
     public const string MovieIdentifier = "tv.plex.agents.custom.modernmetadata.movie";
     public const string TvIdentifier = "tv.plex.agents.custom.modernmetadata.tv";
-    public const string Version = "1.2.0";
+    public const string Version = "1.3.0";
 
     public static MediaProviderResponse CreateMovieProvider() => new()
     {

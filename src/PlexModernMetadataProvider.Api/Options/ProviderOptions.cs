@@ -12,6 +12,7 @@ public sealed class ProviderOptions
     public TmdbOptions TMDb { get; set; } = new();
     public OmdbOptions OMDb { get; set; } = new();
     public TvMazeOptions TVMaze { get; set; } = new();
+    public PlexOptions Plex { get; set; } = new();
 }
 
 public sealed class TmdbOptions
@@ -36,4 +37,13 @@ public sealed class TvMazeOptions
     public string BaseUrl { get; set; } = "https://api.tvmaze.com/";
     public int RequestTimeoutSeconds { get; set; } = 15;
     public int CacheTtlMinutes { get; set; } = 15;
+}
+
+public sealed class PlexOptions
+{
+    public bool EnableReconciliation { get; set; }
+    public string BaseUrl { get; set; } = string.Empty;
+    public string Token { get; set; } = string.Empty;
+    public int RequestTimeoutSeconds { get; set; } = 10;
+    public int CacheTtlMinutes { get; set; } = 5;
 }
